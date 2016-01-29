@@ -19,7 +19,7 @@ In this report, we aim to build a predictive model of the quality of movement re
 
 5) E: throwing hips to the front (mistake)
 
-We find that a random forest model with 10-fold cross-validation generates a lower out of sample error than a linear discriminant analysis with 10-fold cross-validation trained on the same dataset.
+We find that a random forest model with 10-fold cross-validation generates a lower out of sample error than a linear discriminant analysis with 10-fold cross-validation trained on the same dataset (4.5% error vs. 48.2% error, respectively). Our predictive algorithm correctly predicts 19/20 of the classes in the test set.
 
 ## Pre-processing
 Load libraries necessary for analysis.
@@ -46,10 +46,10 @@ Set seed for analyses.
 set.seed(2222)
 ```
 
-Limit variables to those relating to accelaration on belt, forearm, arm, and dumbbell. Also include name of individual who performed the exercise, and the outcome variable.
+Limit variables to those relating to accelaration on belt, forearm, arm, and dumbbell. Also include the outcome variable.
 ``` {r}
 accell <- grep("accel", colnames(training))
-training_accel <- training[,c(2, accell, which(colnames(training) == "classe"))]
+training_accel <- training[,c(accell, which(colnames(training) == "classe"))]
 ```
 
 Determine whethere there are any variables with missing values that can be removed from the dataset. Variance of accelleration in all areas missing the majority of observations; remove those variables.
@@ -60,42 +60,12 @@ varAccell <- grep("^var", colnames(training_accel))
 training_accel <- training_accel[,-varAccell]
 ```
 
-Convert the user_name and outcome variables to factors to prepare for model building.
+Convert the outcome variables to factors to prepare for model building.
 ``` {r}
-training_accel$user_name = as.factor(training_accel$user_name)
 training_accel$classe = as.factor(training_accel$classe)
 ```
 
-Consider whether any variables are correlated, and should perhaps be subject to a principle components analysis.
-``` {r}
-M <- abs(cor(training_accel[,-c(1, 18)]))
-diag(M) <- 0
-which(M > 0.8, arr.ind = T)
-```
-
-All but one variable relating to 'belt' measurements are highly correlated. Group all 'belt' variables into principle components. 
-``` {r}
-training_accel_belt <- training_accel[, grep("belt", colnames(training_accel))]
-preProc <- preProcess(training_accel_belt, method = "pca", thresh = 0.9)
-
-# apply principal components to training set
-train_beltPC <- predict(preProc, training_accel_belt)
-```
-
-Scale variables not entered into principle components.
-``` {r}
-scaleObj <- preProcess(training_accel[, -c(1, 18)], method = c("center", "scale"))
-training_scaled <- predict(scaleObj, training_accel[, -c(1, 18)])
-```
-
-Combine scaled variables, principle components, subject variable, and outcome variable into final training set to be used for the model.
-``` {r}
-train_noBelt <- training_scaled[, -grep("belt", colnames(training_scaled))]
-train_noBelt <- cbind(train_noBelt, training_accel[, c(1, 18)])
-trainPC <- cbind(train_noBelt, train_beltPC)
-```
-
-## Predicitve model
+## Predictive model
 Use random forest algorithm to model excercise data, due to its high accuracy. Due to high computational load, allow for parallel processing to speed the process.
 
 Specify that 10-fold cross-validation should be used, include control parameters in train function.
@@ -107,47 +77,33 @@ fitControl <- trainControl(method = "cv",
                            number = 10,
                            allowParallel = T)
 
-modFit <- train(classe ~., trainPC, method = "rf", trControl = fitControl)
+modFit <- train(classe ~., training_accel, method = "rf", trControl = fitControl)
 
 stopCluster(cluster)
 ```
 
-Based on the 10-fold cross-validation, evaluate the out of sample error. Accuracy across the folds is 94.2%, with 5.8% estimated out of sample error.
+Based on the 10-fold cross-validation, evaluate the out of sample error. Accuracy across the folds is 95.5%, with 4.5% estimated out of sample error.
 ``` {r}
 confusionMatrix(modFit)
-accuracy <- 27.4 + 17.8 + 16.5 + 15.1 + 17.4
+accuracy <- 27.6 + 18 + 16.7 + 15.3 + 17.9
 error <- 100 - accuracy
 error
 ```
 
-## Prediction
-Prepare the test set, applying same transformations and principle components anaysis as on the training set.
+### Predictions
+Match testing set to training set.
 ``` {r}
 accell_test <- grep("accel", colnames(testing))
-testing_accel <- testing[,c(2, accell_test, 160)]
+testing_accel <- testing[,c(accell_test, which(colnames(testing) == "problem_id"))]
 varAccell_test <- grep("^var", colnames(testing_accel))
 testing_accel <- testing_accel[,-varAccell_test]
-
-# PCA
-testing_accel_belt <- testing_accel[, grep("belt", colnames(testing_accel))]
-test_beltPC <- predict(preProc, testing_accel_belt)
-
-# Scaling
-scaleObj_test <- preProcess(testing_accel[, -c(1, 18)], method = c("center", "scale"))
-testing_scaled <- predict(scaleObj_test, testing_accel[, -c(1, 18)])
-
-# Combine
-test_noBelt <- testing_scaled[, -grep("belt", colnames(testing_scaled))]
-test_noBelt <- cbind(test_noBelt, testing_accel[, c(1, 18)])
-testPC <- cbind(test_noBelt, test_beltPC)
-testPC$user_name = as.factor(testPC$user_name)
 ```
 
 Use random forest model to predict movement classification in test set.
 ``` {r}
-pred <- predict(modFit, testPC[, -14])
-testPC$classe <- pred
-testPC[, c(14, 17)]
+pred <- predict(modFit, testing_accel)
+testing_accel$classe <- pred
+testing_accel[, 17:18]
 ```
 
 ## Supplemental analysis
@@ -160,16 +116,15 @@ fitControl <- trainControl(method = "cv",
                            number = 10,
                            allowParallel = T)
 
-
-modFit2 <- train(classe ~., trainPC, method = "lda", trControl = fitControl)
+modFit2 <- train(classe ~., training_accel, method = "lda", trControl = fitControl)
 
 stopCluster(cluster)
 ```
 
-Estimate out of sample error from cross-validation. Accuracy is 52.7%, error is 47.3%. This confirms that random forest is a good choice for this analysis.
+Estimate out of sample error from cross-validation. Accuracy is 51.7%, error is 48.3%. This confirms that random forest is a good choice for this analysis.
 ``` {r}
 confusionMatrix(modFit2)
-accuracy <- 19.9 + 9 + 7 + 9.6 + 7.2
+accuracy <- 19.6 + 8.2 + 5.4 + 10.3 + 8.2
 error2 = 100 - accuracy
 error2
 ```
